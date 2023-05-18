@@ -1,12 +1,13 @@
 #include <Arduino.h>
 
-#include <Servo.h>   // Библиотека серво, если используется серво
+#include <Servo.h>   // Библиотека серво
 #include <SPI.h>     // Библиотека SPI для MFRC522
 #include <MFRC522.h> // Библиотека RFID модуля MFRC522
 #include <EEPROM.h>  // Библиотека EEPROM для хранения ключей
+#include "boot.h"
 
 #define LOCK_TIMEOUT 1000 // Время до блокировки замка после закрытия двери в мс
-#define MAX_TAGS 50        // Максимальное количество хранимых меток - ключей
+#define MAX_TAGS 50       // Максимальное количество хранимых меток - ключей
 #define SERVO_PIN 2       // Пин серво
 #define RST_PIN 6         // Пин RST MFRC522
 #define CS_PIN 7          // Пин SDA MFRC522
@@ -16,13 +17,13 @@
 
 MFRC522 rfid(CS_PIN, RST_PIN); // Обьект RFID
 Servo doorServo;               // Обьект серво
+key bat(BTN_PIN);              // Объект кнопки
 
 void lock(void);
 void unlock(void);
 void saveOrDeleteTag(uint8_t *tag, uint8_t size);
 bool compareUIDs(uint8_t *in1, uint8_t *in2, uint8_t size);
 int16_t foundTag(uint8_t *tag, uint8_t size);
-
 
 uint8_t locked = 1;    // Флаг состояния замка
 bool needLock = false; // Служебный флаг
@@ -40,16 +41,16 @@ void setup()
 
   // Настраиваем пины
   pinMode(BTN_PIN, INPUT_PULLUP);
- 
+
   // Полная очистка при включении при зажатой кнопке
   uint32_t start = millis(); // Отслеживание длительного удержания кнопки после включения
   bool needClear = 0;        // Чистим флаг на стирание
   while (!digitalRead(BTN_PIN))
   { // Пока кнопка нажата
     if (millis() - start >= 3000)
-    {                    // Встроенный таймаут на 3 секунды
-      needClear = true;  // Ставим флаг стирания при достижении таймаута
-      break;             // Выходим из цикла
+    {                   // Встроенный таймаут на 3 секунды
+      needClear = true; // Ставим флаг стирания при достижении таймаута
+      break;            // Выходим из цикла
     }
   }
 
@@ -72,8 +73,9 @@ void setup()
 
 void loop()
 {
+  uint16_t b = bat.tik();
   // Закрытие по нажатию кнопки изнутри
-  if (millis() - lockTimeout >= LOCK_TIMEOUT && locked == false && !digitalRead(BTN_PIN))
+  if (locked == false && b == 1)
   {                         // Если дверь открыта и нажали кнопку
     lock();                 // Блокируем
     locked = true;          // Замок закрыт
@@ -81,7 +83,7 @@ void loop()
   }
 
   // Открытие по нажатию кнопки изнутри
-  if (millis() - lockTimeout >= LOCK_TIMEOUT && locked == true && !digitalRead(BTN_PIN))
+  if (locked == true && b == 1)
   {                         // Если дверь закрыта и нажали кнопку
     unlock();               // Разблокируем замок
     locked = false;         // Замок открыт
@@ -89,22 +91,33 @@ void loop()
   }
 
   // Поднесение метки
-  if (millis() - rfidTimeout >= 500 && foundTag(rfid.uid.uidByte, rfid.uid.size) >= 0)
-  { // Закрытие
-    if (millis() - lockTimeout >= LOCK_TIMEOUT && locked == false && !digitalRead(BTN_PIN))
+  if (rfid.PICC_IsNewCardPresent() and rfid.PICC_ReadCardSerial()) // Если поднесена карта
+  {
+    if (b == 100 and millis() - rfidTimeout >= 500)                // кнопка нажата
     {
-      lock();                 // Блокируем
-      locked = true;          // Замок закрыт
-      lockTimeout = millis(); // Запомнили время
+      saveOrDeleteTag(rfid.uid.uidByte, rfid.uid.size);            // Сохраняем или удаляем метку
     }
-    //
-    if (millis() - lockTimeout >= LOCK_TIMEOUT && locked == true && !digitalRead(BTN_PIN))
+    else
     {
-      unlock();               // Разблокируем замок
-      locked = false;         // Замок открыт
-      lockTimeout = millis(); // Запомнили время
+      if (foundTag(rfid.uid.uidByte, rfid.uid.size) >= 0)          // Ищем метку в базе
+      {
+        if (millis() - lockTimeout >= LOCK_TIMEOUT && locked == false)
+        {
+          lock();                 // Блокируем
+          locked = true;          // Замок закрыт
+          lockTimeout = millis(); // Запомнили время
+        }
+        if (millis() - lockTimeout >= LOCK_TIMEOUT && locked == true)
+        {
+          unlock();               // Разблокируем замок
+          locked = false;         // Замок открыт
+          lockTimeout = millis(); // Запомнили время
+        }
+      }
     }
+    rfidTimeout = millis(); // Обвновляем таймаут
   }
+
   // Перезагружаем RFID каждые 0.5 сек (для надежности)
   static uint32_t rfidRebootTimer = millis(); // Таймер
   if (millis() - rfidRebootTimer > 500)
