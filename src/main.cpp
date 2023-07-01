@@ -4,7 +4,7 @@
 #include <SPI.h>     // Библиотека SPI для MFRC522
 #include <MFRC522.h> // Библиотека RFID модуля MFRC522
 #include <EEPROM.h>  // Библиотека EEPROM для хранения ключей
-#include "boot.h"
+#include "boot.h"    // key
 
 #define LOCK_TIMEOUT 1000 // Время до блокировки замка после закрытия двери в мс
 #define MAX_TAGS 50       // Максимальное количество хранимых меток - ключей
