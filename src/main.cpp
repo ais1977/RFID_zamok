@@ -76,12 +76,14 @@ void openDoor()
   if (door)
   {
     servo.write(150);
+    servo.detach();
     door = 0;
     delay(1000);
   }
   else
   {
     servo.write(1);
+    servo.detach();
     door = 1;
     delay(1000);
   }
